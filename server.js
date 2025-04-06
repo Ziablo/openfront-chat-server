@@ -6,8 +6,10 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Stockage des connexions actives
+// Stockage des connexions actives et des derniers messages
 const connections = new Set();
+const lastMessages = [];
+const MAX_STORED_MESSAGES = 5;
 
 // Route de test pour vérifier que le serveur fonctionne
 app.get('/', (req, res) => {
@@ -30,6 +32,16 @@ const interval = setInterval(() => {
   });
 }, 30000);
 
+// Fonction pour stocker un nouveau message
+function storeMessage(message) {
+  if (message.type === 'chat') {
+    lastMessages.push(message);
+    if (lastMessages.length > MAX_STORED_MESSAGES) {
+      lastMessages.shift();
+    }
+  }
+}
+
 wss.on('connection', (ws) => {
   console.log('Nouveau client connecté');
   ws.isAlive = true;
@@ -44,12 +56,30 @@ wss.on('connection', (ws) => {
 
   // Gestion des messages reçus
   ws.on('message', (data) => {
-    // Diffusion du message à tous les clients connectés
-    connections.forEach((client) => {
-      if (client !== ws && client.readyState === ws.OPEN) {
-        client.send(data.toString());
+    try {
+      const message = JSON.parse(data);
+      
+      if (message.type === 'getLastMessages') {
+        // Envoyer les derniers messages au client qui les demande
+        ws.send(JSON.stringify({
+          type: 'lastMessages',
+          messages: lastMessages
+        }));
+        return;
       }
-    });
+
+      // Stocker le message s'il est de type chat
+      storeMessage(message);
+
+      // Diffusion du message à tous les clients connectés
+      connections.forEach((client) => {
+        if (client !== ws && client.readyState === ws.OPEN) {
+          client.send(data.toString());
+        }
+      });
+    } catch (error) {
+      console.error('Erreur lors du traitement du message:', error);
+    }
   });
 
   // Gestion de la déconnexion
@@ -67,4 +97,4 @@ wss.on('close', () => {
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
   console.log(`Serveur en écoute sur le port ${port}`);
-});
+}); 
