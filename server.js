@@ -19,6 +19,17 @@ function heartbeat() {
   this.isAlive = true;
 }
 
+const interval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      connections.delete(ws);
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
 wss.on('connection', (ws) => {
   console.log('Nouveau client connecté');
   ws.isAlive = true;
@@ -47,18 +58,6 @@ wss.on('connection', (ws) => {
     connections.delete(ws);
   });
 });
-
-// Vérification périodique des connexions
-const interval = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) {
-      connections.delete(ws);
-      return ws.terminate();
-    }
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 30000);
 
 wss.on('close', () => {
   clearInterval(interval);
