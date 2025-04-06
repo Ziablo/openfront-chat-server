@@ -1,0 +1,16 @@
+{
+  "name": "openfront-chat",
+  "version": "1.0.0",
+  "description": "Serveur de chat pour OpenFront",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
