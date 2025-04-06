@@ -34,11 +34,25 @@ const interval = setInterval(() => {
 
 // Fonction pour stocker un nouveau message
 function storeMessage(message) {
+  // Ne stocker que les messages de type chat ou image
   if (message.type === 'chat') {
+    console.log('Stockage d\'un nouveau message:', message);
     lastMessages.push(message);
     if (lastMessages.length > MAX_STORED_MESSAGES) {
       lastMessages.shift();
     }
+    console.log('Messages stockés:', lastMessages.length);
+  }
+}
+
+// Fonction pour envoyer les derniers messages à un client
+function sendLastMessages(ws) {
+  console.log('Envoi des derniers messages. Nombre de messages:', lastMessages.length);
+  if (lastMessages.length > 0) {
+    ws.send(JSON.stringify({
+      type: 'lastMessages',
+      messages: lastMessages
+    }));
   }
 }
 
@@ -54,24 +68,24 @@ wss.on('connection', (ws) => {
     content: 'Connecté au chat OpenFront'
   }));
 
+  // Envoyer immédiatement les derniers messages
+  sendLastMessages(ws);
+
   // Gestion des messages reçus
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data);
-      
+      console.log('Message reçu:', message.type);
+
       if (message.type === 'getLastMessages') {
-        // Envoyer les derniers messages au client qui les demande
-        ws.send(JSON.stringify({
-          type: 'lastMessages',
-          messages: lastMessages
-        }));
+        sendLastMessages(ws);
         return;
       }
 
-      // Stocker le message s'il est de type chat
+      // Stocker le message
       storeMessage(message);
 
-      // Diffusion du message à tous les clients connectés
+      // Diffusion du message à tous les autres clients
       connections.forEach((client) => {
         if (client !== ws && client.readyState === ws.OPEN) {
           client.send(data.toString());
