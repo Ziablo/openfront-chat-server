@@ -1,6 +1,6 @@
-# Serveur de Chat OpenFront
+# OpenFront Chat Server
 
-Serveur WebSocket pour le chat en jeu de l'extension OpenFront.
+Serveur WebSocket pour le chat en jeu d'OpenFront.
 
 ## Installation
 
@@ -14,11 +14,4 @@ npm install
 npm start
 ```
 
-Le serveur démarrera sur le port 3000 par défaut, ou utilisera le port spécifié dans la variable d'environnement PORT.
-
-## Fonctionnalités
-
-- Communication en temps réel via WebSocket
-- Diffusion des messages à tous les clients connectés
-- Gestion automatique des déconnexions
-- Ping/Pong pour maintenir les connexions actives
+Le serveur démarrera sur le port 3000 par défaut, ou sur le port spécifié par la variable d'environnement `PORT`.
