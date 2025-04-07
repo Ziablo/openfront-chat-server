@@ -7,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const ADMIN_PASSWORD = '123'; // Mot de passe admin stocké sur le serveur
+const ADMIN_PASSWORD = 'coco132'; // Mot de passe admin stocké sur le serveur
 const clients = new Set();
 const messages = [];
 const MAX_MESSAGES = 5;
