@@ -1,108 +1,121 @@
 const express = require('express');
+const { WebSocketServer } = require('ws');
 const http = require('http');
-const WebSocket = require('ws');
-const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
 app.use(cors());
 app.use(express.json());
 
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+// Configuration
+const ADMIN_COMMAND = '/pourquoi';
+const ADMIN_PASSWORD = 'admin123';
+const JWT_SECRET = 'votre_secret_jwt'; // À changer en production
 
-// Configuration secrète
-const ADMIN_COMMAND = 'X8k9Y#mP$'; // Commande secrète à remplacer
-const JWT_SECRET = 'votre_secret_jwt_super_long_et_complexe'; // Secret JWT à remplacer
+// Stockage des messages
+const messages = new Map();
+const clients = new Set();
 
-// Stockage des messages (limité aux 50 derniers)
-const messages = [];
-const MAX_MESSAGES = 50;
-
-// Fonction pour vérifier un token JWT
-function verifyToken(token) {
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (error) {
-    return null;
-  }
-}
-
-// Endpoint pour vérifier la commande admin
+// Routes d'authentification
 app.post('/admin/verify', (req, res) => {
   const { command } = req.body;
-  if (command === `/pourquoi ${ADMIN_COMMAND}`) {
-    const token = jwt.sign({ isAdmin: true }, JWT_SECRET);
+  
+  if (command === ADMIN_COMMAND) {
+    const token = jwt.sign({ isAdmin: true }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ success: true, token });
   } else {
     res.json({ success: false });
   }
 });
 
-// Endpoint pour vérifier un token existant
 app.post('/admin/verify-token', (req, res) => {
   const { token } = req.body;
-  const decoded = verifyToken(token);
-  res.json({ success: !!decoded?.isAdmin });
+  
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    res.json({ success: true });
+  } catch (error) {
+    res.json({ success: false });
+  }
 });
 
 // Gestion des connexions WebSocket
 wss.on('connection', (ws, req) => {
-  // Vérifier si l'utilisateur est admin via le token
-  const url = new URL(req.url, 'http://localhost');
-  const token = url.searchParams.get('token');
-  ws.isAdmin = !!verifyToken(token)?.isAdmin;
+  const token = new URL(req.url, 'http://localhost').searchParams.get('token');
+  let isAdmin = false;
+
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      isAdmin = decoded.isAdmin;
+    } catch (error) {
+      console.error('Token invalide:', error);
+    }
+  }
+
+  ws.isAdmin = isAdmin;
+  clients.add(ws);
 
   // Envoyer les derniers messages
-  ws.send(JSON.stringify({
-    type: 'lastMessages',
-    messages: messages
-  }));
+  const lastMessages = Array.from(messages.values())
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-5);
+  
+  if (lastMessages.length > 0) {
+    ws.send(JSON.stringify({
+      type: 'lastMessages',
+      messages: lastMessages
+    }));
+  }
 
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data);
 
       if (message.type === 'chat') {
-        // Ajouter un ID unique si non présent
-        message.id = message.id || Date.now().toString();
-        messages.push(message);
+        message.id = Date.now().toString();
+        messages.set(message.id, message);
         
-        // Garder seulement les 50 derniers messages
-        if (messages.length > MAX_MESSAGES) {
-          messages.shift();
+        // Limiter le stockage à 100 messages
+        if (messages.size > 100) {
+          const oldestKey = Array.from(messages.keys())[0];
+          messages.delete(oldestKey);
         }
 
         // Diffuser le message à tous les clients
-        wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(message));
-          }
-        });
-      }
-      else if (message.type === 'admin' && ws.isAdmin) {
+        broadcast(message);
+      } else if (message.type === 'admin' && ws.isAdmin) {
         if (message.action === 'delete') {
-          // Supprimer le message du stockage
-          const index = messages.findIndex(m => m.id === message.messageId);
-          if (index !== -1) {
-            messages.splice(index, 1);
-          }
-
-          // Informer tous les clients de la suppression
-          wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify(message));
-            }
-          });
+          messages.delete(message.messageId);
+          broadcast(message);
+        } else if (message.action === 'ban') {
+          broadcast(message);
         }
       }
     } catch (error) {
       console.error('Erreur de traitement du message:', error);
     }
   });
+
+  ws.on('close', () => {
+    clients.delete(ws);
+  });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Serveur démarré sur le port ${PORT}`);
+function broadcast(message) {
+  clients.forEach(client => {
+    if (client.readyState === WebSocketServer.OPEN) {
+      client.send(JSON.stringify(message));
+    }
+  });
+}
+
+// Démarrage du serveur
+const port = process.env.PORT || 3000;
+server.listen(port, () => {
+  console.log(`Serveur en écoute sur le port ${port}`);
 }); 
