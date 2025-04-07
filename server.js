@@ -1,114 +1,108 @@
 const express = require('express');
-const { WebSocketServer } = require('ws');
 const http = require('http');
+const WebSocket = require('ws');
+const jwt = require('jsonwebtoken');
+const cors = require('cors');
 
 const app = express();
+app.use(cors());
+app.use(express.json());
+
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocket.Server({ server });
 
-// Stockage des connexions actives et des derniers messages
-const connections = new Set();
-const lastMessages = [];
-const MAX_STORED_MESSAGES = 5;
+// Configuration secrète
+const ADMIN_COMMAND = 'X8k9Y#mP$'; // Commande secrète à remplacer
+const JWT_SECRET = 'votre_secret_jwt_super_long_et_complexe'; // Secret JWT à remplacer
 
-// Route de test pour vérifier que le serveur fonctionne
-app.get('/', (req, res) => {
-  res.send('Serveur de chat OpenFront en ligne!');
+// Stockage des messages (limité aux 50 derniers)
+const messages = [];
+const MAX_MESSAGES = 50;
+
+// Fonction pour vérifier un token JWT
+function verifyToken(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    return null;
+  }
+}
+
+// Endpoint pour vérifier la commande admin
+app.post('/admin/verify', (req, res) => {
+  const { command } = req.body;
+  if (command === `/pourquoi ${ADMIN_COMMAND}`) {
+    const token = jwt.sign({ isAdmin: true }, JWT_SECRET);
+    res.json({ success: true, token });
+  } else {
+    res.json({ success: false });
+  }
 });
 
-// Ping pour garder les connexions actives
-function heartbeat() {
-  this.isAlive = true;
-}
+// Endpoint pour vérifier un token existant
+app.post('/admin/verify-token', (req, res) => {
+  const { token } = req.body;
+  const decoded = verifyToken(token);
+  res.json({ success: !!decoded?.isAdmin });
+});
 
-const interval = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) {
-      connections.delete(ws);
-      return ws.terminate();
-    }
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 30000);
+// Gestion des connexions WebSocket
+wss.on('connection', (ws, req) => {
+  // Vérifier si l'utilisateur est admin via le token
+  const url = new URL(req.url, 'http://localhost');
+  const token = url.searchParams.get('token');
+  ws.isAdmin = !!verifyToken(token)?.isAdmin;
 
-// Fonction pour stocker un nouveau message
-function storeMessage(message) {
-  // Ne stocker que les messages de type chat ou image
-  if (message.type === 'chat') {
-    console.log('Stockage d\'un nouveau message:', message);
-    lastMessages.push(message);
-    if (lastMessages.length > MAX_STORED_MESSAGES) {
-      lastMessages.shift();
-    }
-    console.log('Messages stockés:', lastMessages.length);
-  }
-}
-
-// Fonction pour envoyer les derniers messages à un client
-function sendLastMessages(ws) {
-  console.log('Envoi des derniers messages. Nombre de messages:', lastMessages.length);
-  if (lastMessages.length > 0) {
-    ws.send(JSON.stringify({
-      type: 'lastMessages',
-      messages: lastMessages
-    }));
-  }
-}
-
-wss.on('connection', (ws) => {
-  console.log('Nouveau client connecté');
-  ws.isAlive = true;
-  ws.on('pong', heartbeat);
-  connections.add(ws);
-
-  // Envoi d'un message de bienvenue
+  // Envoyer les derniers messages
   ws.send(JSON.stringify({
-    type: 'system',
-    content: 'Connecté au chat OpenFront'
+    type: 'lastMessages',
+    messages: messages
   }));
 
-  // Envoyer immédiatement les derniers messages
-  sendLastMessages(ws);
-
-  // Gestion des messages reçus
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data);
-      console.log('Message reçu:', message.type);
 
-      if (message.type === 'getLastMessages') {
-        sendLastMessages(ws);
-        return;
-      }
-
-      // Stocker le message
-      storeMessage(message);
-
-      // Diffusion du message à tous les autres clients
-      connections.forEach((client) => {
-        if (client !== ws && client.readyState === ws.OPEN) {
-          client.send(data.toString());
+      if (message.type === 'chat') {
+        // Ajouter un ID unique si non présent
+        message.id = message.id || Date.now().toString();
+        messages.push(message);
+        
+        // Garder seulement les 50 derniers messages
+        if (messages.length > MAX_MESSAGES) {
+          messages.shift();
         }
-      });
+
+        // Diffuser le message à tous les clients
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(message));
+          }
+        });
+      }
+      else if (message.type === 'admin' && ws.isAdmin) {
+        if (message.action === 'delete') {
+          // Supprimer le message du stockage
+          const index = messages.findIndex(m => m.id === message.messageId);
+          if (index !== -1) {
+            messages.splice(index, 1);
+          }
+
+          // Informer tous les clients de la suppression
+          wss.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify(message));
+            }
+          });
+        }
+      }
     } catch (error) {
-      console.error('Erreur lors du traitement du message:', error);
+      console.error('Erreur de traitement du message:', error);
     }
   });
-
-  // Gestion de la déconnexion
-  ws.on('close', () => {
-    console.log('Client déconnecté');
-    connections.delete(ws);
-  });
 });
 
-wss.on('close', () => {
-  clearInterval(interval);
-});
-
-// Démarrage du serveur
-const port = process.env.PORT || 3000;
-server.listen(port, () => {
-  console.log(`Serveur en écoute sur le port ${port}`);
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Serveur démarré sur le port ${PORT}`);
 }); 
