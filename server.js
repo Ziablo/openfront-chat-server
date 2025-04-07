@@ -67,57 +67,44 @@ function broadcast(message, sender) {
 }
 
 wss.on('connection', (ws) => {
-  console.log('Nouveau client connecté');
-  ws.isAlive = true;
-  ws.on('pong', heartbeat);
-  clients.add(ws);
-
-  // Envoi d'un message de bienvenue
-  ws.send(JSON.stringify({
-    type: 'system',
-    content: 'Connecté au chat OpenFront'
-  }));
-
-  // Envoyer immédiatement les derniers messages
-  sendLastMessages(ws);
-
-  // Gestion des messages reçus
+  console.log('Nouvelle connexion');
+  
+  // Envoyer les derniers messages au nouveau client
+  if (messages.length > 0) {
+    ws.send(JSON.stringify({
+      type: 'lastMessages',
+      messages: messages.slice(-5) // Envoyer les 5 derniers messages
+    }));
+  }
+  
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data);
-      console.log('Message reçu:', message.type);
-
-      if (message.type === 'getLastMessages') {
-        sendLastMessages(ws);
-        return;
+      
+      // Ajouter le timestamp du serveur à chaque message
+      if (message.type === 'chat') {
+        message.serverTimestamp = Date.now();
+        messages.push(message);
+        
+        // Limiter le nombre de messages stockés
+        if (messages.length > 100) {
+          messages.shift();
+        }
       }
-
-      if (message.type === 'admin' && message.action === 'checkPassword') {
-        // Vérification du mot de passe admin
-        const isValidPassword = message.password === ADMIN_PASSWORD;
-        ws.send(JSON.stringify({
-          type: 'admin',
-          action: 'passwordCheck',
-          isValid: isValidPassword
-        }));
-        return;
-      }
-
-      // Stocker le message
-      storeMessage(message);
-
+      
       // Diffuser le message à tous les clients
-      broadcast(message, ws);
-      ws.send(JSON.stringify(message)); // Renvoyer au sender aussi
+      wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(message));
+        }
+      });
     } catch (error) {
       console.error('Erreur lors du traitement du message:', error);
     }
   });
-
-  // Gestion de la déconnexion
+  
   ws.on('close', () => {
     console.log('Client déconnecté');
-    clients.delete(ws);
   });
 });
 
