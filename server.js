@@ -81,6 +81,17 @@ wss.on('connection', (ws) => {
     try {
       const message = JSON.parse(data);
       
+      // Gérer la vérification du mot de passe administrateur
+      if (message.type === 'admin' && message.action === 'checkPassword') {
+        const isValid = message.password === ADMIN_PASSWORD;
+        ws.send(JSON.stringify({
+          type: 'admin',
+          action: 'passwordCheck',
+          isValid: isValid
+        }));
+        return;
+      }
+      
       // Ajouter le timestamp du serveur à chaque message
       if (message.type === 'chat') {
         message.serverTimestamp = Date.now();
